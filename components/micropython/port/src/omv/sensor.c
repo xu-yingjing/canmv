@@ -22,6 +22,7 @@
 #include "ff.h"
 #include "gc0328.h"
 #include "gc2145.h"
+#include "gc0308.h"
 #include "mt9d111.h"
 #include "ov7740.h"
 #include "mphalport.h"
@@ -439,6 +440,10 @@ uint16_t sensro_gc_scan()
     {
         id = GC2145_ID;
     }
+    else if (cambus_scan_gc0308())
+    {
+        id = GC0308_ID;
+    }
     return id;
 }
 
@@ -534,6 +539,11 @@ int sensro_gc_detect(sensor_t *sensor, bool pwnd)
             mp_printf(&mp_plat_print, "[CANMV]: find gc2145\r\n");
             sensor->slv_addr = GC2145_ADDR;
             gc2145_init(sensor);
+        case GC0308_ID:
+            sensor->slv_addr = GC0308_ADDR;
+            mp_printf(&mp_plat_print, "[CANMV]: find gc0308\r\n");
+            gc0308_init(sensor);
+            break;
         default:
             break;
         }

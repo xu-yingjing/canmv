@@ -13,6 +13,7 @@ int cambus_init(uint8_t reg_wid, int8_t i2c, int8_t pin_clk, int8_t pin_sda, uin
 int cambus_scan();
 int cambus_scan_gc0328(void);
 int cambus_scan_gc2145(void);
+int cambus_scan_gc0308(void);
 int cambus_scan_mt9d111(void);
 int cambus_readb(uint8_t slv_addr, uint16_t reg_addr,  uint8_t *reg_data);
 void cambus_set_writeb_delay(uint32_t delay);

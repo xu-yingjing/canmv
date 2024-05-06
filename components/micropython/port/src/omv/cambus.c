@@ -12,6 +12,7 @@
 #include "dvp.h"
 #include "gc0328.h"
 #include "gc2145.h"
+#include "gc0308.h"
 #include "mt9d111.h"
 #include "py/mpprint.h"
 #include "sysctl.h"
@@ -247,6 +248,21 @@ int cambus_scan_gc2145(void)
     if (id != 0x2145)
     {
         // mp_printf(&mp_plat_print, "error gc2145 detect, ret id is 0x%x\r\n", id);
+        return 0;
+    }
+    return id;
+}
+
+int cambus_scan_gc0308(void)
+{
+    uint8_t id;
+    
+    sccb_reg_width = 8;
+    sccb_i2c_write_byte(i2c_device, GC0308_ADDR, 0xFE, sccb_reg_width, 0x00, 10);
+    sccb_i2c_read_byte(i2c_device, GC0308_ADDR, 0x00, sccb_reg_width, &id, 10);
+    if (id != 0x9B)
+    {
+        // mp_printf(&mp_plat_print, "error gc0308 detect, ret id is 0x%x\r\n", id);
         return 0;
     }
     return id;

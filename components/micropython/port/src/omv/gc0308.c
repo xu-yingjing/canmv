@@ -1,0 +1,603 @@
+/* Copyright 2018 Canaan Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS},
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+#include <stdio.h>
+#include "gc0308.h"
+#include "dvp.h"
+#include "plic.h"
+#include "sleep.h"
+#include "sensor.h"
+#include "mphalport.h"
+#include "cambus.h"
+#include "printf.h"
+
+static const uint8_t sensor_default_regs[][2] = {
+    {0xfe, 0x00},
+    {0xec, 0x20},
+    {0x05, 0x00},
+    {0x06, 0x00},
+    {0x07, 0x00},
+    {0x08, 0x00},
+    {0x09, 0x01},
+    {0x0a, 0xe8},
+    {0x0b, 0x02},
+    {0x0c, 0x88},
+    {0x0d, 0x02},
+    {0x0e, 0x02},
+    {0x10, 0x26},
+    {0x11, 0x0d},
+    {0x12, 0x2a},
+    {0x13, 0x00},
+    {0x14, 0x11},
+    {0x15, 0x0a},
+    {0x16, 0x05},
+    {0x17, 0x01},
+    {0x18, 0x44},
+    {0x19, 0x44},
+    {0x1a, 0x2a},
+    {0x1b, 0x00},
+    {0x1c, 0x49},
+    {0x1d, 0x9a},
+    {0x1e, 0x61},
+    {0x1f, 0x00}, //pad drv <=24MHz, use 0x00 is ok
+    {0x20, 0x7f},
+    {0x21, 0xfa},
+    {0x22, 0x57},
+    {0x24, 0xa6},   //YCbYCr
+    {0x25, 0x0f},
+    {0x26, 0x03}, // 0x01
+    {0x28, 0x00},
+    {0x2d, 0x0a},
+    {0x2f, 0x01},
+    {0x30, 0xf7},
+    {0x31, 0x50},
+    {0x32, 0x00},
+    {0x33, 0x28},
+    {0x34, 0x2a},
+    {0x35, 0x28},
+    {0x39, 0x04},
+    {0x3a, 0x20},
+    {0x3b, 0x20},
+    {0x3c, 0x00},
+    {0x3d, 0x00},
+    {0x3e, 0x00},
+    {0x3f, 0x00},
+    {0x50, 0x14}, // 0x14
+    {0x52, 0x41},
+    {0x53, 0x80},
+    {0x54, 0x80},
+    {0x55, 0x80},
+    {0x56, 0x80},
+    {0x8b, 0x20},
+    {0x8c, 0x20},
+    {0x8d, 0x20},
+    {0x8e, 0x14},
+    {0x8f, 0x10},
+    {0x90, 0x14},
+    {0x91, 0x3c},
+    {0x92, 0x50},
+//{0x8b,0x10},
+//{0x8c,0x10},
+//{0x8d,0x10},
+//{0x8e,0x10},
+//{0x8f,0x10},
+//{0x90,0x10},
+//{0x91,0x3c},
+//{0x92,0x50},
+    {0x5d, 0x12},
+    {0x5e, 0x1a},
+    {0x5f, 0x24},
+    {0x60, 0x07},
+    {0x61, 0x15},
+    {0x62, 0x08}, // 0x08
+    {0x64, 0x03}, // 0x03
+    {0x66, 0xe8},
+    {0x67, 0x86},
+    {0x68, 0x82},
+    {0x69, 0x18},
+    {0x6a, 0x0f},
+    {0x6b, 0x00},
+    {0x6c, 0x5f},
+    {0x6d, 0x8f},
+    {0x6e, 0x55},
+    {0x6f, 0x38},
+    {0x70, 0x15},
+    {0x71, 0x33},
+    {0x72, 0xdc},
+    {0x73, 0x00},
+    {0x74, 0x02},
+    {0x75, 0x3f},
+    {0x76, 0x02},
+    {0x77, 0x38}, // 0x47
+    {0x78, 0x88},
+    {0x79, 0x81},
+    {0x7a, 0x81},
+    {0x7b, 0x22},
+    {0x7c, 0xff},
+    {0x93, 0x48}, //color matrix default
+    {0x94, 0x02},
+    {0x95, 0x07},
+    {0x96, 0xe0},
+    {0x97, 0x40},
+    {0x98, 0xf0},
+    {0xb1, 0x40},
+    {0xb2, 0x40},
+    {0xb3, 0x40}, //0x40
+    {0xb6, 0xe0},
+    {0xbd, 0x38},
+    {0xbe, 0x36},
+    {0xd0, 0xCB},
+    {0xd1, 0x10},
+    {0xd2, 0x90},
+    {0xd3, 0x48},
+    {0xd5, 0xF2},
+    {0xd6, 0x16},
+    {0xdb, 0x92},
+    {0xdc, 0xA5},
+    {0xdf, 0x23},
+    {0xd9, 0x00},
+    {0xda, 0x00},
+    {0xe0, 0x09},
+    {0xed, 0x04},
+    {0xee, 0xa0},
+    {0xef, 0x40},
+    {0x80, 0x03},
+
+    {0x9F, 0x10},
+    {0xA0, 0x20},
+    {0xA1, 0x38},
+    {0xA2, 0x4e},
+    {0xA3, 0x63},
+    {0xA4, 0x76},
+    {0xA5, 0x87},
+    {0xA6, 0xa2},
+    {0xA7, 0xb8},
+    {0xA8, 0xca},
+    {0xA9, 0xd8},
+    {0xAA, 0xe3},
+    {0xAB, 0xeb},
+    {0xAC, 0xf0},
+    {0xAD, 0xF8},
+    {0xAE, 0xFd},
+    {0xAF, 0xFF},
+
+    {0xc0, 0x00},
+    {0xc1, 0x10},
+    {0xc2, 0x1c},
+    {0xc3, 0x30},
+    {0xc4, 0x43},
+    {0xc5, 0x54},
+    {0xc6, 0x65},
+    {0xc7, 0x75},
+    {0xc8, 0x93},
+    {0xc9, 0xB0},
+    {0xca, 0xCB},
+    {0xcb, 0xE6},
+    {0xcc, 0xFF},
+    {0xf0, 0x02},
+    {0xf1, 0x01},
+    {0xf2, 0x02},
+    {0xf3, 0x30},
+    {0xf7, 0x04},
+    {0xf8, 0x02},
+    {0xf9, 0x9f},
+    {0xfa, 0x78},
+    {0xfe, 0x01},
+    {0x00, 0xf5},
+    {0x02, 0x20},
+    {0x04, 0x10},
+    {0x05, 0x08},
+    {0x06, 0x20},
+    {0x08, 0x0a},
+    {0x0a, 0xa0},
+    {0x0b, 0x60},
+    {0x0c, 0x08},
+    {0x0e, 0x44},
+    {0x0f, 0x32},
+    {0x10, 0x41},
+    {0x11, 0x37},
+    {0x12, 0x22},
+    {0x13, 0x19},
+    {0x14, 0x44},
+    {0x15, 0x44},
+    {0x16, 0xc2},
+    {0x17, 0xA8},
+    {0x18, 0x18},
+    {0x19, 0x50},
+    {0x1a, 0xd8},
+    {0x1b, 0xf5},
+    {0x70, 0x40},
+    {0x71, 0x58},
+    {0x72, 0x30},
+    {0x73, 0x48},
+    {0x74, 0x20},
+    {0x75, 0x60},
+    {0x77, 0x20},
+    {0x78, 0x32},
+    {0x30, 0x03},
+    {0x31, 0x40},
+    {0x32, 0x10},
+    {0x33, 0xe0},
+    {0x34, 0xe0},
+    {0x35, 0x00},
+    {0x36, 0x80},
+    {0x37, 0x00},
+    {0x38, 0x04},
+    {0x39, 0x09},
+    {0x3a, 0x12},
+    {0x3b, 0x1C},
+    {0x3c, 0x28},
+    {0x3d, 0x31},
+    {0x3e, 0x44},
+    {0x3f, 0x57},
+    {0x40, 0x6C},
+    {0x41, 0x81},
+    {0x42, 0x94},
+    {0x43, 0xA7},
+    {0x44, 0xB8},
+    {0x45, 0xD6},
+    {0x46, 0xEE},
+    {0x47, 0x0d},
+    {0x62, 0xf7},
+    {0x63, 0x68},
+    {0x64, 0xd3},
+    {0x65, 0xd3},
+    {0x66, 0x60},
+    {0xfe, 0x00},
+
+    {0x01, 0x32},   //frame setting                            
+	{0x02, 0x0c},                                  
+	{0x0f, 0x01},                                                                                                                     
+	{0xe2, 0x00},  
+	{0xe3, 0x78},                                                             
+	{0xe4, 0x00},      
+	{0xe5, 0xfe},  
+	{0xe6, 0x01},  
+	{0xe7, 0xe0},  
+	{0xe8, 0x01},  
+	{0xe9, 0xe0},  
+	{0xea, 0x01},  
+	{0xeb, 0xe0},
+	{0xfe, 0x00},
+
+    {0x00, 0x00}
+};
+
+static const uint8_t qqvga_config[][2] = {
+    {0xFE, 0x00},
+    {0x05, 0x00},
+    {0x06, 0x00},
+    {0x07, 0x00},
+    {0x08, 0x00},
+    {0x09, 0x01},
+    {0x0A, 0xE8},
+    {0x0B, 0x02},
+    {0x0C, 0x88},
+    {0xFE, 0x01},
+    {0x54, 0x44},
+    {0x56, 0x00},
+    {0x57, 0x00},
+    {0x58, 0x00},
+    {0x59, 0x00},
+    {0xFE, 0x00},
+    {0x00, 0x00}
+};
+
+static const uint8_t B240X240_config[][2] = {
+    {0xFE, 0x00},
+    {0x05, 0x00},
+    {0x06, 0x00},
+    {0x07, 0x00},
+    {0x08, 0x50},
+    {0x09, 0x01},
+    {0x0A, 0xE8},
+    {0x0B, 0x01},
+    {0x0C, 0xE8},
+    {0xFE, 0x01},
+    {0x54, 0x22},
+    {0x56, 0x00},
+    {0x57, 0x00},
+    {0x58, 0x00},
+    {0x59, 0x00},
+    {0xFE, 0x00},
+    {0x00, 0x00}
+};
+
+static const uint8_t qvga_config[][2] = {
+    {0xFE, 0x00},
+    {0x05, 0x00},
+    {0x06, 0x00},
+    {0x07, 0x00},
+    {0x08, 0x00},
+    {0x09, 0x01},
+    {0x0A, 0xE8},
+    {0x0B, 0x02},
+    {0x0C, 0x88},
+    {0xFE, 0x01},
+    {0x54, 0x22},
+    {0x56, 0x00},
+    {0x57, 0x00},
+    {0x58, 0x00},
+    {0x59, 0x00},
+    {0xFE, 0x00},
+    {0x00, 0x00}
+};
+
+static const uint8_t vga_config[][2] = {
+    {0xFE, 0x00},
+    {0x05, 0x00},
+    {0x06, 0x00},
+    {0x07, 0x00},
+    {0x08, 0x00},
+    {0x09, 0x01},
+    {0x0A, 0xE8},
+    {0x0B, 0x02},
+    {0x0C, 0x88},
+    {0xFE, 0x01},
+    {0x54, 0x11},
+    {0x56, 0x00},
+    {0x57, 0x00},
+    {0x58, 0x00},
+    {0x59, 0x00},
+    {0xFE, 0x00},
+    {0x00, 0x00}
+};
+
+static int gc0308_read_reg(sensor_t *sensor, uint8_t reg_addr)
+{
+    uint8_t reg_data;
+
+    if (cambus_readb(GC0308_ADDR, reg_addr, &reg_data) != 0)
+    {
+        return -1;
+    }
+    return reg_data;
+}
+
+static int gc0308_write_reg(sensor_t *sensor, uint8_t reg_addr, uint16_t reg_data)
+{
+    return cambus_writeb(GC0308_ADDR, reg_addr, (uint8_t)reg_data);
+}
+
+static int gc0308_set_pixformat(sensor_t *sensor, pixformat_t pixformat)
+{
+    return 0;
+}
+
+static int gc0308_set_framesize(sensor_t *sensor, framesize_t framesize)
+{
+    const uint8_t (*regs)[2];
+    int i = 0;
+    uint16_t w = resolution[framesize][0];
+    uint16_t h = resolution[framesize][1];
+
+    if (framesize == FRAMESIZE_QQVGA)
+    {
+        regs = qqvga_config;
+    }
+    else if (framesize == FRAMESIZE_240X240)
+    {
+        regs = B240X240_config;
+    }
+    else if ((w <= 320) && (h <= 240))
+    {
+        regs = qvga_config;
+    }
+    else
+    {
+        regs = vga_config;
+    }
+
+    while (regs[i][0])
+    {
+        cambus_writeb(GC0308_ADDR, regs[i][0], regs[i][1]);
+        i++;
+    }
+    mp_hal_delay_ms(30);
+
+    dvp_set_image_size(w, h);
+
+    return 0;
+}
+
+static int gc0308_set_framerate(sensor_t *sensor, framerate_t framerate)
+{
+    return 0;
+}
+
+#define NUM_CONTRAST_LEVELS (5)
+static uint8_t contrast_regs[NUM_CONTRAST_LEVELS][1] = {
+    {0x00},
+    {0x20},
+    {0x40},
+    {0x60},
+    {0x80}
+};
+static int gc0308_set_contrast(sensor_t *sensor, int level)
+{
+    level += (NUM_CONTRAST_LEVELS / 2);
+    if (level < 0 || level > NUM_CONTRAST_LEVELS) {
+        return -1;
+    }
+
+	cambus_writeb(GC0308_ADDR, 0xFE, 0x00);
+	cambus_writeb(GC0308_ADDR, 0xB3, contrast_regs[level][0]);
+
+    return 0;
+}
+
+static int gc0308_set_brightness(sensor_t *sensor, int level)
+{
+    return 0;
+}
+
+static int gc0308_set_saturation(sensor_t *sensor, int level)
+{
+    return 0;
+}
+
+static int gc0308_set_gainceiling(sensor_t *sensor, gainceiling_t gainceiling)
+{
+    return 0;
+}
+
+static int gc0308_set_quality(sensor_t *sensor, int qs)
+{
+    return 0;
+}
+
+static int gc0308_set_colorbar(sensor_t *sensor, int enable)
+{
+    uint8_t reg_data;
+
+    cambus_writeb(GC0308_ADDR, 0xFE, 0x00);
+    cambus_readb(GC0308_ADDR, 0x2E, &reg_data);
+    reg_data &= ~(0x01 << 0);
+    if (enable)
+    {
+        reg_data |= (0x01 << 0);
+    }
+    cambus_writeb(GC0308_ADDR, 0x2E, reg_data);
+    return 0;
+}
+
+static int gc0308_set_auto_gain(sensor_t *sensor, int enable, float gain_db, float gain_db_ceiling)
+{
+    return 0;
+}
+
+static int gc0308_get_gain_db(sensor_t *sensor, float *gain_db)
+{
+    return 0;
+}
+
+static int gc0308_set_auto_exposure(sensor_t *sensor, int enable, int exposure_us)
+{
+    return 0;
+}
+
+static int gc0308_get_exposure_us(sensor_t *sensor, int *exposure_us)
+{
+    return 0;
+}
+
+static int gc0308_set_auto_whitebal(sensor_t *sensor, int enable, float r_gain_db, float g_gain_db, float b_gain_db)
+{
+    return 0;
+}
+
+static int gc0308_get_rgb_gain_db(sensor_t *sensor, float *r_gain_db, float *g_gain_db, float *b_gain_db)
+{
+    return 0;
+}
+
+static int gc0308_set_hmirror(sensor_t *sensor, int enable)
+{
+    uint8_t data;
+
+    cambus_writeb(GC0308_ADDR, 0xFE, 0x00);
+    cambus_readb(GC0308_ADDR, 0x14, &data);
+    data &= ~(0x01 << 0);
+    if (enable)
+    {
+        data |= (0x01 << 0);
+    }
+    return cambus_writeb(GC0308_ADDR, 0x14, data);
+}
+
+static int gc0308_set_vflip(sensor_t *sensor, int enable)
+{
+    uint8_t data;
+
+    cambus_writeb(GC0308_ADDR, 0xFE, 0x00);
+    cambus_readb(GC0308_ADDR, 0x14, &data);
+    data &= ~(0x01 << 1);
+    if (enable)
+    {
+        data |= (0x01 << 1);
+    }
+    return cambus_writeb(GC0308_ADDR, 0x14, data);
+}
+
+int gc0308_reset(sensor_t *sensor)
+{
+    uint16_t index;
+
+    cambus_writeb(GC0308_ADDR, 0xFE, 0xF0);
+    mp_hal_delay_ms(80);
+
+    for (index = 0; sensor_default_regs[index][0]; index++)
+    {
+        cambus_writeb(GC0308_ADDR, sensor_default_regs[index][0], sensor_default_regs[index][1]);
+    }
+
+    mp_hal_delay_ms(80);
+    cambus_writeb(GC0308_ADDR, 0xFE, 0x00);
+
+    return 0;
+}
+
+int gc0308_set_windowing(framesize_t fraemsize, int x, int y, int w, int h)
+{
+    if (fraemsize == FRAMESIZE_QVGA)
+    {
+        cambus_writeb(GC0308_ADDR, 0xFE, 0x00);
+        cambus_writeb(GC0308_ADDR, 0x05, (y >> 8) & 0xFF);
+        cambus_writeb(GC0308_ADDR, 0x06, y & 0xFF);
+        cambus_writeb(GC0308_ADDR, 0x07, (x >> 8) & 0xFF);
+        cambus_writeb(GC0308_ADDR, 0x08, x & 0xFF);
+        cambus_writeb(GC0308_ADDR, 0x09, (h >> 8) & 0xFF);
+        cambus_writeb(GC0308_ADDR, 0x0A, h & 0xFF);
+        cambus_writeb(GC0308_ADDR, 0x0B, (w >> 8) & 0xFF);
+        cambus_writeb(GC0308_ADDR, 0x0C, w & 0xFF);
+    }
+
+    return 0;
+}
+
+int gc0308_init(sensor_t *sensor)
+{
+    //Initialize sensor structure.
+    sensor->gs_bpp              = 2;
+    sensor->reset               = gc0308_reset;
+    sensor->read_reg            = gc0308_read_reg;
+    sensor->write_reg           = gc0308_write_reg;
+    sensor->set_pixformat       = gc0308_set_pixformat;
+    sensor->set_framesize       = gc0308_set_framesize;
+    sensor->set_framerate       = gc0308_set_framerate;
+    sensor->set_contrast        = gc0308_set_contrast;
+    sensor->set_brightness      = gc0308_set_brightness;
+    sensor->set_saturation      = gc0308_set_saturation;
+    sensor->set_gainceiling     = gc0308_set_gainceiling;
+    sensor->set_quality         = gc0308_set_quality;
+    sensor->set_colorbar        = gc0308_set_colorbar;
+    sensor->set_auto_gain       = gc0308_set_auto_gain;
+    sensor->get_gain_db         = gc0308_get_gain_db;
+    sensor->set_auto_exposure   = gc0308_set_auto_exposure;
+    sensor->get_exposure_us     = gc0308_get_exposure_us;
+    sensor->set_auto_whitebal   = gc0308_set_auto_whitebal;
+    sensor->get_rgb_gain_db     = gc0308_get_rgb_gain_db;
+    sensor->set_hmirror         = gc0308_set_hmirror;
+    sensor->set_vflip           = gc0308_set_vflip;
+	sensor->set_windowing       = gc0308_set_windowing;
+
+    // Set sensor flags
+    SENSOR_HW_FLAGS_SET(sensor, SENSOR_HW_FLAGS_VSYNC, 0);
+    SENSOR_HW_FLAGS_SET(sensor, SENSOR_HW_FLAGS_HSYNC, 0);
+    SENSOR_HW_FLAGS_SET(sensor, SENSOR_HW_FLAGS_PIXCK, 1);
+    SENSOR_HW_FLAGS_SET(sensor, SENSOR_HW_FLAGS_FSYNC, 0);
+    SENSOR_HW_FLAGS_SET(sensor, SENSOR_HW_FLAGS_JPEGE, 1);
+
+    return 0;
+}
